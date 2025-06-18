@@ -150,7 +150,7 @@ public:
     }
 
     void LoadP010(const unsigned short* data, int yuvmat, int yuvrange, int primary) {
-        buffer.swap(std::vector<unsigned short>(data, data + width * height * 3 / 2));
+        buffer = std::vector<unsigned short>(data, data + width * height * 3 / 2);
         ReloadTexture(yuvmat, yuvrange, primary);
     }
 
