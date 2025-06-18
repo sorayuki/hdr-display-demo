@@ -48,15 +48,6 @@ class DxContext {
     std::vector<unsigned short> buffer;
 
 public:
-    bool ShouldReset(int width, int height) {
-        if (dxgiFactory && dxgiFactory->IsCurrent()) {
-            if (width == this->width && height == this->height)
-                return false;
-        }
-
-        return true;
-    }
-
     void Init(int width, int height, HWND hwnd) {
         this->width = width;
         this->height = height;
@@ -149,6 +140,15 @@ public:
         }
     }
 
+    bool ShouldReset(int width, int height) {
+        if (dxgiFactory && dxgiFactory->IsCurrent()) {
+            if (width == this->width && height == this->height)
+                return false;
+        }
+
+        return true;
+    }
+
     void LoadP010(const unsigned short* data, int yuvmat, int yuvrange, int primary) {
         buffer = std::vector<unsigned short>(data, data + width * height * 3 / 2);
         ReloadTexture(yuvmat, yuvrange, primary);
@@ -158,11 +158,19 @@ public:
         d3dContext->CopyResource(backBuffer.Get(), stagingTexture.Get());
         swapChain->Present(1, 0);
     }
+
+    int Width() const {
+        return width;
+    }
+
+    int Height() const {
+        return height;
+    }
 };
 
 std::unique_ptr<DxContext> dxctx;
 
-int yuv2rgb_index = 0;
+int yuv2rgb_index = 2;
 int yuv2rgb_max = 3;
 const wchar_t* yuv2rgb_name[] = {
     L"BT.601",
@@ -176,14 +184,14 @@ const wchar_t* transfer_name[] = {
     L"HLG"
 };
 
-int yuvrange_index = 0;
+int yuvrange_index = 1;
 int yuvrange_max = 2;
 const wchar_t* yuvrange_name[] = {
     L"Full",
     L"Limited"
 };
 
-int primary_index = 0;
+int primary_index = 1;
 int primary_max = 2;
 const wchar_t* primary_name[] = {
     L"sRGB",
@@ -225,6 +233,30 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case '4':
             primary_index = (primary_index + 1) % primary_max;
             break;
+        case '`': {
+            if (dxctx) {
+                RECT rect;
+                GetClientRect(hwnd, &rect);
+                int wndWidth = rect.right - rect.left;
+                int wndHeight = rect.bottom - rect.top;
+                // newWidth / newHeight == dxctx->Width() / dxctx->Height()
+                // newWidth * newHeight == wndWidth * wndHeight
+                float newWidth = sqrtf(1.0 * dxctx->Width() / dxctx->Height() * wndWidth * wndHeight);
+                float newHeight = wndWidth * wndHeight / newWidth;
+
+                {
+                    RECT rc = { 0, 0, (LONG)round(newWidth), (LONG)round(newHeight) };
+                    DWORD style = (DWORD)GetWindowLong(hwnd, GWL_STYLE);
+                    DWORD exStyle = (DWORD)GetWindowLong(hwnd, GWL_EXSTYLE);
+                    AdjustWindowRectEx(&rc, style, FALSE, exStyle);
+                    int totalW = rc.right - rc.left;
+                    int totalH = rc.bottom - rc.top;
+                    SetWindowPos(hwnd, nullptr, 0, 0, totalW, totalH,
+                                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+                }
+            }
+            break;
+        }
         default:
             return DefWindowProc(hwnd, msg, wParam, lParam);
         }
@@ -264,8 +296,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     dxctx = std::make_unique<DxContext>();
                     dxctx->Init(width, height, hwnd);
                     dxctx->LoadP010(data.data(), yuv2rgb_index, yuvrange_index, primary_index);
-                    // resize窗口但保持位置不变
-                    SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
                     InvalidateRect(hwnd, nullptr, TRUE); // 重绘窗口
                     UpdateTitle(hwnd);
                 } else {
