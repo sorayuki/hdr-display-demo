@@ -74,10 +74,8 @@ void hlg_to_linear(float v[4], float exponent)
     }
 }
 
-void from_hlg(float p[4]) {
-    const float Lw = 1000.;
-    // float y = 1.2 + (Lw > 1000. ? (0.42 * log10(Lw / 1000.)) : 0);
-    float y = 1.2;
+void from_hlg(float p[4], float Lw) {
+    float y = 1.2 + (Lw > 1000. ? (0.42 * log10(Lw / 1000.)) : 0);
     hlg_to_linear(p, y);
     for(int i = 0; i < 3; ++i) {
         p[i] = p[i] * Lw / 80.f;

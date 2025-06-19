@@ -35,6 +35,51 @@ struct float16x4 {
 };
 
 
+
+int yuv2rgb_index = 2;
+int yuv2rgb_max = 3;
+const wchar_t* yuv2rgb_name[] = {
+    L"BT.601",
+    L"BT.709",
+    L"BT.2020"
+};
+
+int transfer_index = 0;
+int transfer_max = 1;
+const wchar_t* transfer_name[] = {
+    L"HLG"
+};
+
+int yuvrange_index = 1;
+int yuvrange_max = 2;
+const wchar_t* yuvrange_name[] = {
+    L"Full",
+    L"Limited"
+};
+
+int primary_index = 1;
+int primary_max = 2;
+const wchar_t* primary_name[] = {
+    L"sRGB",
+    L"BT.2020"
+};
+
+int hlg_max_lw = 1000;
+int hlg_min_lw = 300;
+int hlg_current_lw = 1000;
+
+void UpdateTitle(HWND hwnd) {
+    std::wstring title = L"Matrix: " + std::wstring(yuv2rgb_name[yuv2rgb_index]) +
+                            L", Range: " + std::wstring(yuvrange_name[yuvrange_index]) +
+                            L", Transfer: " + std::wstring(transfer_name[transfer_index]) +
+                            L", Primary: " + std::wstring(primary_name[primary_index]) +
+                            L", MaxLw: " + std::to_wstring(hlg_current_lw);
+    SetWindowTextW(hwnd, title.c_str());
+}
+
+
+
+
 class DxContext {
     ComPtr<ID3D11Device> d3dDevice;
     ComPtr<ID3D11DeviceContext> d3dContext;
@@ -126,7 +171,7 @@ public:
                     MulMatrix(d.data(), yuv2rgb);
 
                     // 非线性RGB转线性RGB
-                    from_hlg(d.data());
+                    from_hlg(d.data(), hlg_current_lw);
 
                     // 线性RGB转换到BT.709色基，暂时先不管601和709的细微差别，只处理2020
                     if (primary == 1) {
@@ -170,42 +215,6 @@ public:
 
 std::unique_ptr<DxContext> dxctx;
 
-int yuv2rgb_index = 2;
-int yuv2rgb_max = 3;
-const wchar_t* yuv2rgb_name[] = {
-    L"BT.601",
-    L"BT.709",
-    L"BT.2020"
-};
-
-int transfer_index = 0;
-int transfer_max = 1;
-const wchar_t* transfer_name[] = {
-    L"HLG"
-};
-
-int yuvrange_index = 1;
-int yuvrange_max = 2;
-const wchar_t* yuvrange_name[] = {
-    L"Full",
-    L"Limited"
-};
-
-int primary_index = 1;
-int primary_max = 2;
-const wchar_t* primary_name[] = {
-    L"sRGB",
-    L"BT.2020"
-};
-
-void UpdateTitle(HWND hwnd) {
-    std::wstring title = L"Matrix: " + std::wstring(yuv2rgb_name[yuv2rgb_index]) +
-                            L", Range: " + std::wstring(yuvrange_name[yuvrange_index]) +
-                            L", Transfer: " + std::wstring(transfer_name[transfer_index]) +
-                            L", Primary: " + std::wstring(primary_name[primary_index]);
-    SetWindowTextW(hwnd, title.c_str());
-}
-
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_PAINT:
@@ -221,45 +230,60 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CHAR:
     {
         switch (wParam) {
-        case '1':
-            yuv2rgb_index = (yuv2rgb_index + 1) % yuv2rgb_max;
-            break;
-        case '2':
-            yuvrange_index = (yuvrange_index + 1) % yuvrange_max;
-            break;
-        case '3':
-            transfer_index = (transfer_index + 1) % transfer_max;
-            break;
-        case '4':
-            primary_index = (primary_index + 1) % primary_max;
-            break;
-        case '`': {
-            if (dxctx) {
-                RECT rect;
-                GetClientRect(hwnd, &rect);
-                int wndWidth = rect.right - rect.left;
-                int wndHeight = rect.bottom - rect.top;
-                // newWidth / newHeight == dxctx->Width() / dxctx->Height()
-                // newWidth * newHeight == wndWidth * wndHeight
-                float newWidth = sqrtf(1.0 * dxctx->Width() / dxctx->Height() * wndWidth * wndHeight);
-                float newHeight = wndWidth * wndHeight / newWidth;
+            case '1':
+                yuv2rgb_index = (yuv2rgb_index + 1) % yuv2rgb_max;
+                break;
+            case '2':
+                yuvrange_index = (yuvrange_index + 1) % yuvrange_max;
+                break;
+            case '3':
+                transfer_index = (transfer_index + 1) % transfer_max;
+                break;
+            case '4':
+                primary_index = (primary_index + 1) % primary_max;
+                break;
+            case '`': {
+                if (dxctx) {
+                    RECT rect;
+                    GetClientRect(hwnd, &rect);
+                    int wndWidth = rect.right - rect.left;
+                    int wndHeight = rect.bottom - rect.top;
+                    // newWidth / newHeight == dxctx->Width() / dxctx->Height()
+                    // newWidth * newHeight == wndWidth * wndHeight
+                    float newWidth = sqrtf(1.0 * dxctx->Width() / dxctx->Height() * wndWidth * wndHeight);
+                    float newHeight = wndWidth * wndHeight / newWidth;
 
-                {
-                    RECT rc = { 0, 0, (LONG)round(newWidth), (LONG)round(newHeight) };
-                    DWORD style = (DWORD)GetWindowLong(hwnd, GWL_STYLE);
-                    DWORD exStyle = (DWORD)GetWindowLong(hwnd, GWL_EXSTYLE);
-                    AdjustWindowRectEx(&rc, style, FALSE, exStyle);
-                    int totalW = rc.right - rc.left;
-                    int totalH = rc.bottom - rc.top;
-                    SetWindowPos(hwnd, nullptr, 0, 0, totalW, totalH,
-                                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+                    {
+                        RECT rc = { 0, 0, (LONG)round(newWidth), (LONG)round(newHeight) };
+                        DWORD style = (DWORD)GetWindowLong(hwnd, GWL_STYLE);
+                        DWORD exStyle = (DWORD)GetWindowLong(hwnd, GWL_EXSTYLE);
+                        AdjustWindowRectEx(&rc, style, FALSE, exStyle);
+                        int totalW = rc.right - rc.left;
+                        int totalH = rc.bottom - rc.top;
+                        SetWindowPos(hwnd, nullptr, 0, 0, totalW, totalH,
+                                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+                    }
                 }
+                break;
             }
-            break;
+            case '-': {
+                hlg_current_lw -= 100;
+                if (hlg_current_lw < hlg_min_lw) {
+                    hlg_current_lw = hlg_min_lw;
+                }
+                break;
+            }
+            case '=': {
+                hlg_current_lw += 100;
+                if (hlg_current_lw > hlg_max_lw) {
+                    hlg_current_lw = hlg_max_lw;
+                }
+                break;
+            }
+            default:
+                return DefWindowProc(hwnd, msg, wParam, lParam);
         }
-        default:
-            return DefWindowProc(hwnd, msg, wParam, lParam);
-        }
+
         if (dxctx) {
             dxctx->ReloadTexture(yuv2rgb_index, yuvrange_index, primary_index);
             InvalidateRect(hwnd, nullptr, TRUE); // 重绘窗口
